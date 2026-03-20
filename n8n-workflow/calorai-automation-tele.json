@@ -65,7 +65,7 @@
       "typeVersion": 1.2,
       "position": [
         1968,
-        -192
+        -16
       ],
       "id": "d9435d43-ddf4-405d-9249-6cf256d6abe7",
       "name": "Send a text message2",
@@ -408,7 +408,7 @@
             },
             {
               "fieldId": "=experiment_group",
-              "fieldValue": "={{ Object.values($json.dynamic_configs)[0].value.onboarding_variant }}"
+              "fieldValue": "={{ Object.values($json.dynamic_configs || {})?.[0]?.value?.onboarding_variant || \"control\" }}"
             },
             {
               "fieldId": "=created_at",
@@ -455,7 +455,7 @@
             },
             {
               "fieldId": "=event_value",
-              "fieldValue": "={{ Object.values($node[\"HTTP Request\"].json.dynamic_configs)[0].value.group_name || \"control\" }}"
+              "fieldValue": "={{ Object.values($node[\"HTTP Request\"].json.dynamic_configs || {})?.[0]?.value?.onboarding_variant || \"control\" }}"
             },
             {
               "fieldId": "created_at",
@@ -1148,11 +1148,12 @@
           "conditions": [
             {
               "id": "92ada091-c365-4ccd-8224-a0175064cf24",
-              "leftValue": "={{ $node[\"Get many rows1\"].json.onboarding_step }}",
+              "leftValue": "={{ $items(\"Get many rows1\")[0]?.json?.onboarding_step }}",
               "rightValue": "null",
               "operator": {
                 "type": "string",
-                "operation": "equals"
+                "operation": "empty",
+                "singleValue": true
               }
             }
           ],
@@ -1190,40 +1191,6 @@
           "name": "Telegram account"
         }
       }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 3
-          },
-          "conditions": [
-            {
-              "id": "3bd8612a-7389-4b95-b3e2-9ac8c069286e",
-              "leftValue": "",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "equals",
-                "name": "filter.operator.equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.3,
-      "position": [
-        1808,
-        -16
-      ],
-      "id": "054cea75-b5ae-421c-acc7-f57d6d879c86",
-      "name": "If"
     },
     {
       "parameters": {
@@ -1506,7 +1473,7 @@
       "main": [
         [
           {
-            "node": "If",
+            "node": "Send a text message2",
             "type": "main",
             "index": 0
           }
@@ -1774,17 +1741,6 @@
         ]
       ]
     },
-    "If": {
-      "main": [
-        [
-          {
-            "node": "Send a text message2",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "If1": {
       "main": [
         [
@@ -1832,7 +1788,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "99aaaa76-7fa7-4bd7-9fcd-683829db285d",
+  "versionId": "4b713d11-48d1-4729-ae25-9b1befaf5ade",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "ced2717435df82d9d354924de825fc8b1e4b374c9ebbfb0a358248245a08ad1c"
