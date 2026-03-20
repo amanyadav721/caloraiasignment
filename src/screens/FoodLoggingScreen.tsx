@@ -30,6 +30,17 @@ import {
   upsertMealInState,
 } from "../lib/meals";
 import {
+  calculateOpenFoodFactsCalories,
+  fetchOpenFoodFactsProduct,
+  getCachedOpenFoodFactsMatches,
+  getDefaultOpenFoodFactsQuantity,
+  getOpenFoodFactsMeta,
+  searchOpenFoodFactsProducts,
+  supportsServingMode,
+  type OpenFoodFactsProduct,
+  type OpenFoodFactsQuantityMode,
+} from "../lib/openFoodFacts";
+import {
   syncDailyMealNotifications,
   type NotificationSyncResult,
 } from "../lib/notifications";
@@ -74,6 +85,16 @@ type EditFormState = {
 type ViewMode = "timeline" | "analytics";
 type EditorMode = "create" | "edit";
 
+type OpenFoodFactsComposerState = {
+  results: OpenFoodFactsProduct[];
+  selectedProduct: OpenFoodFactsProduct | null;
+  quantityValue: string;
+  quantityMode: OpenFoodFactsQuantityMode;
+  error: string | null;
+  isSearching: boolean;
+  isLoadingSelection: boolean;
+};
+
 const EMPTY_EDIT_FORM: EditFormState = {
   mealText: "",
   calories: "",
@@ -88,6 +109,16 @@ const DEFAULT_NOTIFICATION_STATE: NotificationSyncResult = {
     Platform.OS === "web"
       ? "Notifications are only available on iOS and Android."
       : "Enable notifications to send the daily reminder and summary.",
+};
+
+const EMPTY_OPEN_FOOD_FACTS_STATE: OpenFoodFactsComposerState = {
+  results: [],
+  selectedProduct: null,
+  quantityValue: "1",
+  quantityMode: "grams",
+  error: null,
+  isSearching: false,
+  isLoadingSelection: false,
 };
 
 function getResolvedTimeZone() {
@@ -323,10 +354,13 @@ export default function FoodLoggingScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>("timeline");
   const [editorMode, setEditorMode] = useState<EditorMode>("create");
   const [isEditorVisible, setIsEditorVisible] = useState(false);
+  const [openFoodFacts, setOpenFoodFacts] =
+    useState<OpenFoodFactsComposerState>(EMPTY_OPEN_FOOD_FACTS_STATE);
   const [notificationState, setNotificationState] =
     useState<NotificationSyncResult>(DEFAULT_NOTIFICATION_STATE);
   const [isConfiguringNotifications, setIsConfiguringNotifications] = useState(false);
   const isFetchingRef = useRef(false);
+  const openFoodFactsSearchRequestIdRef = useRef(0);
 
   async function loadMeals(mode: "initial" | "refresh" | "sync" = "initial") {
     if (!isSupabaseConfigured || isFetchingRef.current) {
@@ -420,6 +454,43 @@ export default function FoodLoggingScreen() {
     };
   }, [meals]);
 
+  useEffect(() => {
+    if (editorMode !== "create" || !openFoodFacts.selectedProduct) {
+      return;
+    }
+
+    const product = openFoodFacts.selectedProduct;
+    const nextCalculation = calculateOpenFoodFactsCalories(
+      product,
+      openFoodFacts.quantityValue,
+      openFoodFacts.quantityMode,
+    );
+
+    if (!nextCalculation) {
+      setEditForm((currentForm) => ({
+        ...currentForm,
+        mealText: product.name,
+        calories: "",
+        breakdownText: "",
+      }));
+      return;
+    }
+
+    setEditForm((currentForm) => ({
+      ...currentForm,
+      mealText: product.name,
+      calories: `${nextCalculation.calories}`,
+      breakdownText: [product.name, nextCalculation.quantityLabel, `${nextCalculation.calories}`].join(
+        " | ",
+      ),
+    }));
+  }, [
+    editorMode,
+    openFoodFacts.quantityMode,
+    openFoodFacts.quantityValue,
+    openFoodFacts.selectedProduct,
+  ]);
+
   const isPreviewMode = !isSupabaseConfigured;
   const displayedMeals = isPreviewMode ? SAMPLE_MEALS : meals;
   const totalCalories = displayedMeals.reduce((sum, meal) => sum + getMealCalories(meal), 0);
@@ -433,13 +504,26 @@ export default function FoodLoggingScreen() {
       ? "Needs attention"
       : "Live";
   const isBusy = isSaving || isDeleting;
+  const selectedFoodCalculation =
+    editorMode === "create" && openFoodFacts.selectedProduct
+      ? calculateOpenFoodFactsCalories(
+          openFoodFacts.selectedProduct,
+          openFoodFacts.quantityValue,
+          openFoodFacts.quantityMode,
+        )
+      : null;
   const maxActivityCount = Math.max(1, ...analytics.dailyActivity.map((day) => day.count));
   const maxGroupCount = Math.max(1, ...analytics.groupDistribution.map((group) => group.count));
+
+  function resetOpenFoodFactsComposer() {
+    setOpenFoodFacts(EMPTY_OPEN_FOOD_FACTS_STATE);
+  }
 
   function openCreateComposer() {
     setEditorMode("create");
     setEditingMeal(null);
     setEditForm(buildInitialForm(null, meals));
+    resetOpenFoodFactsComposer();
     setIsEditorVisible(true);
   }
 
@@ -447,6 +531,7 @@ export default function FoodLoggingScreen() {
     setEditorMode("edit");
     setEditingMeal(meal);
     setEditForm(buildInitialForm(meal));
+    resetOpenFoodFactsComposer();
     setIsEditorVisible(true);
   }
 
@@ -462,6 +547,7 @@ export default function FoodLoggingScreen() {
     setIsEditorVisible(false);
     setEditingMeal(null);
     setEditForm(EMPTY_EDIT_FORM);
+    resetOpenFoodFactsComposer();
   }
 
   function updateEditField<Key extends keyof EditFormState>(
@@ -474,12 +560,151 @@ export default function FoodLoggingScreen() {
     }));
   }
 
+  function handleMealTextChange(value: string) {
+    if (editorMode === "create" && openFoodFacts.selectedProduct) {
+      setOpenFoodFacts((currentState) => ({
+        ...currentState,
+        selectedProduct: null,
+        quantityValue: "1",
+        quantityMode: "grams",
+        results: [],
+        error: null,
+        isLoadingSelection: false,
+      }));
+
+      setEditForm((currentForm) => ({
+        ...currentForm,
+        mealText: value,
+        calories: "",
+        breakdownText: "",
+      }));
+
+      return;
+    }
+
+    updateEditField("mealText", value);
+  }
+
+  function applyOpenFoodFactsSelection(product: OpenFoodFactsProduct) {
+    setOpenFoodFacts((currentState) => ({
+      ...currentState,
+      selectedProduct: null,
+      quantityMode: "grams",
+      quantityValue: "1",
+      results: [],
+      error: null,
+      isLoadingSelection: true,
+    }));
+
+    setEditForm((currentForm) => ({
+      ...currentForm,
+      mealText: product.name,
+      calories: "",
+      breakdownText: "",
+    }));
+
+    void fetchOpenFoodFactsProduct(product.code)
+      .then((fullProduct) => {
+        const defaultQuantity = getDefaultOpenFoodFactsQuantity(fullProduct);
+
+        setOpenFoodFacts((currentState) => ({
+          ...currentState,
+          selectedProduct: fullProduct,
+          quantityMode: defaultQuantity.mode,
+          quantityValue: defaultQuantity.value,
+          error: null,
+          isLoadingSelection: false,
+        }));
+      })
+      .catch((error) => {
+        setOpenFoodFacts((currentState) => ({
+          ...currentState,
+          selectedProduct: null,
+          error: getErrorMessage(error),
+          isLoadingSelection: false,
+        }));
+      });
+  }
+
+  async function handleOpenFoodFactsSearch() {
+    const query = editForm.mealText.trim();
+
+    if (query.length < 2) {
+      Alert.alert("Search term too short", "Type at least 2 letters before searching.");
+      return;
+    }
+
+    const requestId = openFoodFactsSearchRequestIdRef.current + 1;
+    openFoodFactsSearchRequestIdRef.current = requestId;
+    const cachedMatches = getCachedOpenFoodFactsMatches(query);
+
+    setOpenFoodFacts((currentState) => ({
+      ...currentState,
+      isSearching: true,
+      error: null,
+      results: cachedMatches,
+    }));
+
+    try {
+      const results = await searchOpenFoodFactsProducts(query);
+
+      if (openFoodFactsSearchRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setOpenFoodFacts((currentState) => ({
+        ...currentState,
+        isSearching: false,
+        results,
+        error:
+          results.length === 0 ? "No Open Food Facts matches were found for that search." : null,
+      }));
+    } catch (error) {
+      if (openFoodFactsSearchRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setOpenFoodFacts((currentState) => ({
+        ...currentState,
+        isSearching: false,
+        results: currentState.results.length > 0 ? currentState.results : cachedMatches,
+        error: getErrorMessage(error),
+      }));
+    }
+  }
+
+  function clearOpenFoodFactsSelection() {
+    setOpenFoodFacts((currentState) => ({
+      ...currentState,
+      selectedProduct: null,
+      quantityValue: "1",
+      quantityMode: "grams",
+      results: [],
+      error: null,
+      isLoadingSelection: false,
+    }));
+
+    setEditForm((currentForm) => ({
+      ...currentForm,
+      calories: "",
+      breakdownText: "",
+    }));
+  }
+
   async function handleSaveMeal() {
     const mealText = editForm.mealText.trim();
     const userId = editForm.userId.trim();
     const caloriesInput = editForm.calories.trim();
     const parsedCalories =
       caloriesInput.length > 0 ? Number.parseInt(caloriesInput, 10) : null;
+
+    if (editorMode === "create" && openFoodFacts.selectedProduct && !selectedFoodCalculation) {
+      Alert.alert(
+        "Quantity needed",
+        "Enter a valid quantity so calories can be calculated from Open Food Facts.",
+      );
+      return;
+    }
 
     if (caloriesInput.length > 0 && Number.isNaN(parsedCalories)) {
       Alert.alert("Calories must be a number", "Use whole numbers like 420.");
@@ -1039,11 +1264,196 @@ export default function FoodLoggingScreen() {
                   <Text style={styles.fieldLabel}>Meal text</Text>
                   <TextInput
                     value={editForm.mealText}
-                    onChangeText={(value) => updateEditField("mealText", value)}
+                    onChangeText={handleMealTextChange}
                     placeholder="one banana"
                     placeholderTextColor="#6b7280"
                     style={styles.input}
                   />
+                  {editorMode === "create" ? (
+                    <>
+                      <Text style={styles.fieldHelp}>
+                        Search Open Food Facts when you're ready, then pick quantity to auto-fill
+                        calories.
+                      </Text>
+
+                      <View style={styles.searchActionRow}>
+                        <Pressable
+                          onPress={() => {
+                            void handleOpenFoodFactsSearch();
+                          }}
+                          style={({ pressed }) => [
+                            styles.searchButton,
+                            (pressed || openFoodFacts.isSearching || openFoodFacts.isLoadingSelection) &&
+                              styles.buttonPressed,
+                          ]}
+                          disabled={openFoodFacts.isSearching || openFoodFacts.isLoadingSelection}
+                        >
+                          <Text style={styles.searchButtonText}>
+                            {openFoodFacts.isSearching ? "Searching..." : "Search product"}
+                          </Text>
+                        </Pressable>
+
+                        {openFoodFacts.selectedProduct ? (
+                          <Pressable
+                            onPress={clearOpenFoodFactsSelection}
+                            style={({ pressed }) => [
+                              styles.searchSecondaryButton,
+                              pressed && styles.buttonPressed,
+                            ]}
+                          >
+                            <Text style={styles.searchSecondaryButtonText}>Manual entry</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+
+                      {openFoodFacts.error ? (
+                        <View style={styles.inlineMessageCard}>
+                          <Text style={styles.inlineMessageText}>{openFoodFacts.error}</Text>
+                        </View>
+                      ) : null}
+
+                      {openFoodFacts.isLoadingSelection ? (
+                        <View style={styles.selectedFoodCard}>
+                          <Text style={styles.selectedFoodLabel}>Open Food Facts product</Text>
+                          <Text style={styles.selectedFoodTitle}>Loading nutrition details...</Text>
+                          <Text style={styles.selectedFoodSummaryMuted}>
+                            Fetching calories for the selected product before we calculate quantity.
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {openFoodFacts.selectedProduct ? (
+                        <View style={styles.selectedFoodCard}>
+                          <Text style={styles.selectedFoodLabel}>Open Food Facts product</Text>
+                          <Text style={styles.selectedFoodTitle}>
+                            {openFoodFacts.selectedProduct.name}
+                          </Text>
+                          <Text style={styles.selectedFoodMeta}>
+                            {getOpenFoodFactsMeta(openFoodFacts.selectedProduct)}
+                          </Text>
+
+                          <View style={styles.quantityRow}>
+                            <View style={styles.quantityInputWrap}>
+                              <Text style={styles.fieldLabel}>Quantity</Text>
+                              <TextInput
+                                value={openFoodFacts.quantityValue}
+                                onChangeText={(value) => {
+                                  setOpenFoodFacts((currentState) => ({
+                                    ...currentState,
+                                    quantityValue: value,
+                                  }));
+                                }}
+                                placeholder={
+                                  openFoodFacts.quantityMode === "grams" ? "100" : "1"
+                                }
+                                placeholderTextColor="#6b7280"
+                                keyboardType="decimal-pad"
+                                style={styles.input}
+                              />
+                            </View>
+
+                            <View style={styles.quantityToggleWrap}>
+                              <Text style={styles.fieldLabel}>Unit</Text>
+                              <View style={styles.quantityToggle}>
+                                <Pressable
+                                  onPress={() => {
+                                    setOpenFoodFacts((currentState) => ({
+                                      ...currentState,
+                                      quantityMode: "grams",
+                                      quantityValue:
+                                        currentState.quantityMode === "grams"
+                                          ? currentState.quantityValue
+                                          : "100",
+                                    }));
+                                  }}
+                                  style={({ pressed }) => [
+                                    styles.quantityToggleButton,
+                                    openFoodFacts.quantityMode === "grams" &&
+                                      styles.quantityToggleButtonActive,
+                                    pressed && styles.buttonPressed,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.quantityToggleButtonText,
+                                      openFoodFacts.quantityMode === "grams" &&
+                                        styles.quantityToggleButtonTextActive,
+                                    ]}
+                                  >
+                                    g
+                                  </Text>
+                                </Pressable>
+
+                                {supportsServingMode(openFoodFacts.selectedProduct) ? (
+                                  <Pressable
+                                    onPress={() => {
+                                      setOpenFoodFacts((currentState) => ({
+                                        ...currentState,
+                                        quantityMode: "servings",
+                                        quantityValue:
+                                          currentState.quantityMode === "servings"
+                                            ? currentState.quantityValue
+                                            : "1",
+                                      }));
+                                    }}
+                                    style={({ pressed }) => [
+                                      styles.quantityToggleButton,
+                                      openFoodFacts.quantityMode === "servings" &&
+                                        styles.quantityToggleButtonActive,
+                                      pressed && styles.buttonPressed,
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.quantityToggleButtonText,
+                                        openFoodFacts.quantityMode === "servings" &&
+                                          styles.quantityToggleButtonTextActive,
+                                      ]}
+                                    >
+                                      serving
+                                    </Text>
+                                  </Pressable>
+                                ) : null}
+                              </View>
+                            </View>
+                          </View>
+
+                          {selectedFoodCalculation ? (
+                            <Text style={styles.selectedFoodSummary}>
+                              {selectedFoodCalculation.calories} calories for{" "}
+                              {selectedFoodCalculation.quantityLabel}
+                            </Text>
+                          ) : (
+                            <Text style={styles.selectedFoodSummaryMuted}>
+                              Enter a valid quantity to calculate calories.
+                            </Text>
+                          )}
+                        </View>
+                      ) : null}
+
+                      {openFoodFacts.results.length > 0 ? (
+                        <View style={styles.searchResultsCard}>
+                          <Text style={styles.searchResultsTitle}>Pick a matching product</Text>
+
+                          {openFoodFacts.results.map((product) => (
+                            <Pressable
+                              key={product.code}
+                              onPress={() => applyOpenFoodFactsSelection(product)}
+                              style={({ pressed }) => [
+                                styles.searchResultItem,
+                                pressed && styles.buttonPressed,
+                              ]}
+                            >
+                              <Text style={styles.searchResultTitle}>{product.name}</Text>
+                              <Text style={styles.searchResultMeta}>
+                                {getOpenFoodFactsMeta(product)}
+                              </Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      ) : null}
+                    </>
+                  ) : null}
                 </View>
 
                 <View style={styles.fieldRow}>
@@ -1055,7 +1465,13 @@ export default function FoodLoggingScreen() {
                       placeholder="105"
                       placeholderTextColor="#6b7280"
                       keyboardType="number-pad"
-                      style={styles.input}
+                      style={[
+                        styles.input,
+                        editorMode === "create" &&
+                          openFoodFacts.selectedProduct &&
+                          styles.inputReadonly,
+                      ]}
+                      editable={!(editorMode === "create" && openFoodFacts.selectedProduct)}
                     />
                   </View>
 
@@ -1081,7 +1497,13 @@ export default function FoodLoggingScreen() {
                     placeholderTextColor="#6b7280"
                     multiline
                     textAlignVertical="top"
-                    style={styles.textarea}
+                    style={[
+                      styles.textarea,
+                      editorMode === "create" &&
+                        openFoodFacts.selectedProduct &&
+                        styles.inputReadonly,
+                    ]}
+                    editable={!(editorMode === "create" && openFoodFacts.selectedProduct)}
                   />
                   <Text style={styles.fieldHelp}>Example: `Banana | 1 medium | 105`</Text>
                 </View>
@@ -1834,6 +2256,156 @@ const styles = StyleSheet.create({
     color: "#71717a",
     fontSize: 12,
     lineHeight: 18,
+  },
+  searchActionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  searchButton: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "#2563eb",
+  },
+  searchButtonText: {
+    color: "#eff6ff",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  searchSecondaryButton: {
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "#18181b",
+    borderWidth: 1,
+    borderColor: "#2d2d35",
+  },
+  searchSecondaryButtonText: {
+    color: "#e4e4e7",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  inlineMessageCard: {
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: "#27140c",
+    borderWidth: 1,
+    borderColor: "#7c2d12",
+  },
+  inlineMessageText: {
+    color: "#fed7aa",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  selectedFoodCard: {
+    gap: 10,
+    borderRadius: 18,
+    padding: 14,
+    backgroundColor: "#0f172a",
+    borderWidth: 1,
+    borderColor: "#1d4ed8",
+  },
+  selectedFoodLabel: {
+    color: "#93c5fd",
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
+  selectedFoodTitle: {
+    color: "#eff6ff",
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  selectedFoodMeta: {
+    color: "#bfdbfe",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  quantityRow: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-end",
+  },
+  quantityInputWrap: {
+    flex: 1,
+    gap: 8,
+  },
+  quantityToggleWrap: {
+    flex: 1.1,
+    gap: 8,
+  },
+  quantityToggle: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  quantityToggleButton: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+    backgroundColor: "#111827",
+    borderWidth: 1,
+    borderColor: "#334155",
+  },
+  quantityToggleButtonActive: {
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
+  },
+  quantityToggleButtonText: {
+    color: "#cbd5e1",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  quantityToggleButtonTextActive: {
+    color: "#eff6ff",
+  },
+  selectedFoodSummary: {
+    color: "#f8fafc",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  selectedFoodSummaryMuted: {
+    color: "#94a3b8",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  searchResultsCard: {
+    gap: 10,
+    borderRadius: 18,
+    padding: 14,
+    backgroundColor: "#101012",
+    borderWidth: 1,
+    borderColor: "#1f2937",
+  },
+  searchResultsTitle: {
+    color: "#fafafa",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  searchResultItem: {
+    gap: 4,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: "#16161a",
+    borderWidth: 1,
+    borderColor: "#232329",
+  },
+  searchResultTitle: {
+    color: "#f8fafc",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  searchResultMeta: {
+    color: "#94a3b8",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  inputReadonly: {
+    opacity: 0.75,
   },
   deleteAction: {
     borderRadius: 16,
