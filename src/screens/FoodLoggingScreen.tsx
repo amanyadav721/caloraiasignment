@@ -18,6 +18,7 @@ import {
 } from "react-native";
 
 import { buildAnalyticsSnapshot } from "../lib/analytics";
+import { fetchAnalyticsData } from "../lib/analyticsData";
 import { parseUtcTimestamp } from "../lib/datetime";
 import {
   createMeal,
@@ -46,7 +47,7 @@ import {
   type NotificationSyncResult,
 } from "../lib/notifications";
 import { isSupabaseConfigured, supabaseConfigError } from "../lib/supabase";
-import type { MealBreakdownItem, MealRow } from "../types/database";
+import type { EventRow, MealBreakdownItem, MealRow, UserRow } from "../types/database";
 
 const SAMPLE_MEALS: MealRow[] = [
   {
@@ -317,6 +318,8 @@ function buildInitialForm(meal?: MealRow | null, recentMeals: MealRow[] = []) {
 
 export default function FoodLoggingScreen() {
   const [meals, setMeals] = useState<MealRow[]>([]);
+  const [analyticsUsers, setAnalyticsUsers] = useState<UserRow[]>([]);
+  const [analyticsEvents, setAnalyticsEvents] = useState<EventRow[]>([]);
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -350,8 +353,10 @@ export default function FoodLoggingScreen() {
     }
 
     try {
-      const nextMeals = await fetchMeals();
+      const [nextMeals, analyticsData] = await Promise.all([fetchMeals(), fetchAnalyticsData()]);
       setMeals(nextMeals);
+      setAnalyticsUsers(analyticsData.users);
+      setAnalyticsEvents(analyticsData.events);
       setErrorMessage(null);
       setLastSyncedAt(new Date().toISOString());
     } catch (error) {
@@ -470,7 +475,11 @@ export default function FoodLoggingScreen() {
   const totalCalories = displayedMeals.reduce((sum, meal) => sum + getMealCalories(meal), 0);
   const totalFoods = displayedMeals.reduce((sum, meal) => sum + countLoggedFoods(meal), 0);
   const timelineSections = buildTimelineSections(displayedMeals);
-  const analytics = buildAnalyticsSnapshot(displayedMeals);
+  const analytics = buildAnalyticsSnapshot(
+    isPreviewMode ? [] : analyticsUsers,
+    displayedMeals,
+    isPreviewMode ? [] : analyticsEvents,
+  );
   const timeZoneLabel = getResolvedTimeZone();
   const syncStatusLabel = isPreviewMode
     ? "Preview"
@@ -1093,41 +1102,65 @@ export default function FoodLoggingScreen() {
             <View style={styles.sectionIntro}>
               <Text style={styles.sectionTitle}>Analytics dashboard</Text>
               <Text style={styles.sectionSubtitle}>
-                Activity trends, estimated experiment splits, and a lightweight onboarding funnel.
+                Backend-powered onboarding and engagement metrics from Supabase `users`, `events`,
+                and `meals`.
               </Text>
             </View>
 
             <View style={styles.analyticsCard}>
-              <Text style={styles.analyticsCardTitle}>7-day meal activity</Text>
+              <Text style={styles.analyticsCardTitle}>Overview</Text>
               <Text style={styles.analyticsCardSubtitle}>
-                Daily meal logging volume over the past week.
+                {analytics.dataSourceNote}
               </Text>
 
-              <View style={styles.chartRow}>
-                {analytics.dailyActivity.map((day) => {
-                  const barHeight =
-                    day.count === 0
-                      ? 6
-                      : Math.max(18, Math.round((day.count / maxActivityCount) * 128));
+              <View style={styles.overviewGrid}>
+                <View style={styles.overviewStatCard}>
+                  <Text style={styles.overviewStatLabel}>Total users</Text>
+                  <Text style={styles.overviewStatValue}>{analytics.totalUsers}</Text>
+                </View>
 
-                  return (
-                    <View key={day.key} style={styles.chartColumn}>
-                      <Text style={styles.chartValue}>{day.count}</Text>
-                      <View style={styles.chartTrack}>
-                        <View style={[styles.chartFill, { height: barHeight }]} />
-                      </View>
-                      <Text style={styles.chartLabel}>{day.label}</Text>
-                    </View>
-                  );
-                })}
+                <View style={styles.overviewStatCard}>
+                  <Text style={styles.overviewStatLabel}>Completed onboarding</Text>
+                  <Text style={styles.overviewStatValue}>{analytics.completedUsers}</Text>
+                </View>
+
+                <View style={styles.overviewStatCard}>
+                  <Text style={styles.overviewStatLabel}>Completion rate</Text>
+                  <Text style={styles.overviewStatValue}>{analytics.completionRate}%</Text>
+                </View>
+
+                <View style={styles.overviewStatCard}>
+                  <Text style={styles.overviewStatLabel}>Active users</Text>
+                  <Text style={styles.overviewStatValue}>{analytics.activeUsers}</Text>
+                </View>
               </View>
             </View>
 
             <View style={styles.analyticsCard}>
-              <Text style={styles.analyticsCardTitle}>A/B group distribution</Text>
+              <Text style={styles.analyticsCardTitle}>Onboarding funnel</Text>
               <Text style={styles.analyticsCardSubtitle}>
-                Users are deterministically split from `user_id` until explicit experiment metadata
-                is available.
+                Counts represent users who have reached each stage in the backend onboarding state.
+              </Text>
+
+              <View style={styles.funnelList}>
+                {analytics.funnel.map((stage) => (
+                  <View key={stage.key} style={styles.funnelRow}>
+                    <View style={styles.funnelRowCopy}>
+                      <Text style={styles.funnelRowTitle}>{stage.label}</Text>
+                      <Text style={styles.funnelRowMeta}>
+                        {stage.dropOff > 0 ? `Drop-off: ${stage.dropOff}` : "Starting stage"}
+                      </Text>
+                    </View>
+                    <Text style={styles.funnelRowValue}>{stage.count}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.analyticsCard}>
+              <Text style={styles.analyticsCardTitle}>Experiment performance</Text>
+              <Text style={styles.analyticsCardSubtitle}>
+                Control vs Test split and completion rates from real backend user records.
               </Text>
 
               <View style={styles.metricStack}>
@@ -1150,41 +1183,63 @@ export default function FoodLoggingScreen() {
                         <Text style={styles.metricValue}>{group.count}</Text>
                       </View>
                       <View style={styles.metricBarTrack}>
-                        <View style={[styles.metricBarFill, fillStyle, { width: `${widthPercentage}%` }]} />
+                        <View
+                          style={[styles.metricBarFill, fillStyle, { width: `${widthPercentage}%` }]}
+                        />
                       </View>
                     </View>
                   );
                 })}
               </View>
+
+              <View style={styles.variantGrid}>
+                {analytics.variantCompletion.map((variant) => (
+                  <View key={variant.label} style={styles.variantCard}>
+                    <Text style={styles.variantTitle}>{variant.label}</Text>
+                    <Text style={styles.variantPrimary}>{variant.completionRate}% completed</Text>
+                    <Text style={styles.variantMeta}>
+                      {variant.completedUsers} / {variant.totalUsers} users
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
 
             <View style={styles.analyticsCard}>
-              <Text style={styles.analyticsCardTitle}>Test-group onboarding funnel</Text>
+              <Text style={styles.analyticsCardTitle}>Engagement</Text>
               <Text style={styles.analyticsCardSubtitle}>
-                Completion is estimated from repeat activity or a structured meal breakdown because
-                this repo does not yet store dedicated onboarding events.
+                Active users and meal logging behavior from the shared meals table.
               </Text>
 
-              <View style={styles.funnelHero}>
-                <Text style={styles.funnelRate}>{analytics.completionRate}%</Text>
-                <Text style={styles.funnelCaption}>Estimated completion rate</Text>
+              <View style={styles.overviewGrid}>
+                <View style={styles.overviewStatCard}>
+                  <Text style={styles.overviewStatLabel}>Active users</Text>
+                  <Text style={styles.overviewStatValue}>{analytics.activeUsers}</Text>
+                </View>
+
+                <View style={styles.overviewStatCard}>
+                  <Text style={styles.overviewStatLabel}>Avg meals / active user</Text>
+                  <Text style={styles.overviewStatValue}>{analytics.avgMealsPerActiveUser}</Text>
+                </View>
               </View>
 
-              <View style={styles.funnelStatRow}>
-                <View style={styles.funnelStat}>
-                  <Text style={styles.funnelStatLabel}>Unique users</Text>
-                  <Text style={styles.funnelStatValue}>{analytics.totalUniqueUsers}</Text>
-                </View>
+              <View style={styles.chartRow}>
+                {analytics.dailyActivity.map((day) => {
+                  const barHeight =
+                    day.count === 0
+                      ? 6
+                      : Math.max(18, Math.round((day.count / maxActivityCount) * 128));
 
-                <View style={styles.funnelStat}>
-                  <Text style={styles.funnelStatLabel}>Test users</Text>
-                  <Text style={styles.funnelStatValue}>{analytics.testUsers}</Text>
-                </View>
-
-                <View style={styles.funnelStat}>
-                  <Text style={styles.funnelStatLabel}>Completed</Text>
-                  <Text style={styles.funnelStatValue}>{analytics.completedTestUsers}</Text>
-                </View>
+                  return (
+                    <View key={day.key} style={styles.chartColumn}>
+                      <Text style={styles.chartValue}>{day.count}</Text>
+                      <View style={styles.chartTrack}>
+                        <View style={[styles.chartFill, { height: barHeight }]} />
+                      </View>
+                      <Text style={styles.chartLabel}>{day.label}</Text>
+                    </View>
+                  );
+                })}
               </View>
             </View>
           </>
@@ -2004,6 +2059,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
   },
+  overviewGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  overviewStatCard: {
+    flexGrow: 1,
+    minWidth: 120,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: "#0f172a",
+    borderWidth: 1,
+    borderColor: "#1e293b",
+  },
+  overviewStatLabel: {
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  overviewStatValue: {
+    marginTop: 6,
+    color: "#f8fafc",
+    fontSize: 24,
+    fontWeight: "800",
+  },
   chartRow: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -2041,6 +2122,39 @@ const styles = StyleSheet.create({
   metricStack: {
     gap: 12,
   },
+  funnelList: {
+    gap: 10,
+  },
+  funnelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: "#0f172a",
+    borderWidth: 1,
+    borderColor: "#1e293b",
+  },
+  funnelRowCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  funnelRowTitle: {
+    color: "#f8fafc",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  funnelRowMeta: {
+    color: "#94a3b8",
+    fontSize: 12,
+  },
+  funnelRowValue: {
+    color: "#38bdf8",
+    fontSize: 24,
+    fontWeight: "800",
+  },
   metricRow: {
     gap: 8,
   },
@@ -2077,6 +2191,40 @@ const styles = StyleSheet.create({
   },
   metricBarFillMuted: {
     backgroundColor: "#64748b",
+  },
+  variantGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  variantCard: {
+    flexGrow: 1,
+    minWidth: 120,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: "#0f172a",
+    borderWidth: 1,
+    borderColor: "#1e293b",
+  },
+  variantTitle: {
+    color: "#e2e8f0",
+    fontSize: 13,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.7,
+  },
+  variantPrimary: {
+    marginTop: 8,
+    color: "#f8fafc",
+    fontSize: 22,
+    fontWeight: "800",
+  },
+  variantMeta: {
+    marginTop: 4,
+    color: "#94a3b8",
+    fontSize: 12,
+    lineHeight: 18,
   },
   funnelHero: {
     alignItems: "center",

@@ -7,6 +7,7 @@ web-build/
 
 coverage/
 *.tsbuildinfo
+.tmp-tests/
 
 .env
 .env.*
