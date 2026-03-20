@@ -63,6 +63,7 @@ You can find both values in your Supabase dashboard under `Project Settings -> A
 - Run it against your project.
 - Copy the SQL from `supabase/analytics.sql`.
 - Run it against your project too.
+- Optional for demo/testing: run `supabase/demo_seed.sql` to add mixed `control` and `test` users plus sample meals/events for the analytics screen.
 
 Those scripts:
 
@@ -153,6 +154,7 @@ If either value is missing, the app stays in preview mode and shows a sample ban
 |       `-- database.ts
 `-- supabase/
     |-- analytics.sql
+    |-- demo_seed.sql
     `-- meals.sql
 ```
 

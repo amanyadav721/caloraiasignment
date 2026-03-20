@@ -1,0 +1,1842 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -16,
+        0
+      ],
+      "id": "3ad09bb5-efbe-403d-ab9e-6ae4281ebca7",
+      "name": "Telegram Trigger",
+      "webhookId": "1e48a1a4-f00a-40ee-94df-65e0d29d539b",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.statsig.com/v1/initialize",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "STATSIG-API-KEY",
+              "value": "={{ $env.STATSIG_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"user\": {\n    \"userID\": \"{{ $node['Code in JavaScript3'].json.chat_id }}\"\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1168,
+        -16
+      ],
+      "id": "373576db-ae07-466b-b123-300d8dfe99a0",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Telegram Trigger\"].json[\"message\"][\"chat\"][\"id\"]}}",
+        "text": "🔥 Welcome to CalorAI  Start tracking your meals in seconds:  📝 /log   Log your food   Example: /log 2 eggs    📋 /meals   View your logged meals    📊 /summary   See your nutrition summary    ✏️ /update   Edit a meal   1. Use /meals   2. Pick a number   3. Send: /update 1 2 eggs",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1968,
+        -192
+      ],
+      "id": "d9435d43-ddf4-405d-9249-6cf256d6abe7",
+      "name": "Send a text message2",
+      "webhookId": "8720ef39-3c8d-4725-9ad7-6a22d40b4303",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.statsig.com/v1/log_event",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "STATSIG-API-KEY",
+              "value": "={{ $env.STATSIG_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"events\": [\n    {\n      \"eventName\": \"onboarding_completed\",\n      \"user\": {\n        \"userID\": \"{{$node[\"Telegram Trigger\"].json[\"message\"][\"chat\"][\"id\"]}}\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2192,
+        -192
+      ],
+      "id": "69e9bfb5-137f-4320-b430-2ae9bb09edd4",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.statsig.com/v1/log_event",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "STATSIG-API-KEY",
+              "value": "={{ $env.STATSIG_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"events\": [\n    {\n      \"eventName\": \"activation_event\",\n      \"user\": {\n        \"userID\": \"{{$node[\"Telegram Trigger\"].json[\"message\"][\"chat\"][\"id\"]}}\"\n      }\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2432,
+        -192
+      ],
+      "id": "3413f392-db57-4a21-9df1-72b2b37680aa",
+      "name": "HTTP Request3"
+    },
+    {
+      "parameters": {
+        "tableId": "meals",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "user_id",
+              "fieldValue": "={{ String($json.chat_id) }}"
+            },
+            {
+              "fieldId": "meal_text",
+              "fieldValue": "={{ $json.meal_text }}"
+            },
+            {
+              "fieldId": "calories",
+              "fieldValue": "={{ $json.calories }}"
+            },
+            {
+              "fieldId": "breakdown",
+              "fieldValue": "={{ JSON.stringify($json.breakdown) }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1520,
+        256
+      ],
+      "id": "87717a1b-d74c-4ec5-abf1-6250160b76dd",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d8e14d74-1b29-4c75-bae1-f13c380d2068",
+              "name": "chat_id",
+              "value": "={{ $json[\"user_id\"] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1824,
+        256
+      ],
+      "id": "da8b081d-f05b-4dca-a180-86cfe2230e25",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id.replace('=', '') }}",
+        "text": "=✅ Meal logged",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2144,
+        304
+      ],
+      "id": "2e3c816a-6dfc-47ba-87b7-c1906b7a8a45",
+      "name": "Send a text message",
+      "webhookId": "a8cb05ec-af24-4055-bfa7-efdecfe2af4c",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "meals",
+        "returnAll": true,
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "={{ String($node[\"Code in JavaScript3\"].json.chat_id) }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        608,
+        432
+      ],
+      "id": "40ea1748-9bfe-4185-9f17-fde1b7c2d295",
+      "name": "Get many rows",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const meals = items.map(i => i.json);\n\nlet text = \"🍽️ Your meals:\\n\\n\";\n\nmeals.forEach((meal, index) => {\n  text += `${index + 1}. ${meal.meal_text} (${meal.calories} kcal)\\n`;\n});\n\nreturn [{\n  json: {\n    chat_id: $node[\"Code in JavaScript3\"].json.chat_id,\n    text\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        432
+      ],
+      "id": "a9a47e97-09c8-47ea-93ef-96fd1da5eec5",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json[\"chat_id\"] }}",
+        "text": "={{ $json[\"text\"] }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1568,
+        432
+      ],
+      "id": "87329291-4522-441a-8e12-4ccf196b8f03",
+      "name": "Send a text message3",
+      "webhookId": "d598604f-b94b-4b1d-aabf-a3ef8932211b",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $node[\"Code in JavaScript3\"].json.full_text\n  .replace(\"/log\", \"\")\n  .trim();\n\nreturn [{\n  json: {\n    clean_text: text,\n    chat_id: $node[\"Code in JavaScript3\"].json.chat_id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        256
+      ],
+      "id": "d870f493-1eae-49b8-a74c-69007830fc0a",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a nutrition expert.\n\nConvert the given food into calorie estimates.\n\nBreak it into items and estimate realistic portions.\n\nReturn ONLY JSON in this format:\n{\n  \"items\": [\n    { \"name\": \"\", \"quantity\": \"\", \"calories\": number }\n  ],\n  \"total_calories\": number\n}"
+            },
+            {
+              "content": "={{ $json.clean_text }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        848,
+        256
+      ],
+      "id": "a425d23d-59fc-4513-bc3a-0ec7f9a791ff",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": "YVzhiUOvuS6gDVwF",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.output[0].content[0].text;\nconst parsed = JSON.parse(raw);\n\nreturn [{\n  json: {\n    meal_text: $node[\"Code in JavaScript1\"].json.clean_text,  // ✅ FIX\n    chat_id: $node[\"Code in JavaScript1\"].json.chat_id,      // ✅ FIX\n    calories: parsed.total_calories,\n    breakdown: parsed.items\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        256
+      ],
+      "id": "043bc3dd-eace-4560-a6d3-71f5bccf1fcd",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.message.text || \"\";\nconst command = text.split(\" \")[0];\n\nreturn [{\n  json: {\n    command,\n    full_text: text,\n    chat_id: $json.message.chat.id\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "c27e7e91-64d3-4b6c-8527-df4cb05b6e56",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "users",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_id",
+              "condition": "eq",
+              "keyValue": "={{ String($json.chat_id) }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        432,
+        0
+      ],
+      "id": "30e53038-27d8-4328-8f00-9d77dc0f76c7",
+      "name": "Get many rows1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "users",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telegram_id",
+              "fieldValue": "={{ $node[\"Code in JavaScript3\"].json.chat_id }}"
+            },
+            {
+              "fieldId": "=experiment_group",
+              "fieldValue": "={{ Object.values($json.dynamic_configs)[0].value.onboarding_variant }}"
+            },
+            {
+              "fieldId": "=created_at",
+              "fieldValue": "={{ new Date().toISOString() }}"
+            },
+            {
+              "fieldId": "onboarding_step",
+              "fieldValue": "step_1"
+            },
+            {
+              "fieldId": "onboarding_completed",
+              "fieldValue": "false"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1392,
+        -16
+      ],
+      "id": "3a38d42a-e136-4f52-ab51-d4ba0b37de48",
+      "name": "Create a row1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "events",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "telegram_id",
+              "fieldValue": "={{ $node[\"Code in JavaScript3\"].json.chat_id }}"
+            },
+            {
+              "fieldId": "event_name",
+              "fieldValue": "experiment_assigned"
+            },
+            {
+              "fieldId": "=event_value",
+              "fieldValue": "={{ Object.values($node[\"HTTP Request\"].json.dynamic_configs)[0].value.group_name || \"control\" }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        -16
+      ],
+      "id": "752405a3-ee32-4058-8f63-34d811987108",
+      "name": "Create a row2",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+                    "rightValue": "/log",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "606879b6-6bc7-4b9d-9f75-e7cda56b50d9"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "b914255c-ecb6-4dae-b3c4-7449a537a9fb",
+                    "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+                    "rightValue": "/meals",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "750dc02e-4b78-4a0b-8bc6-569a3ffcf233",
+                    "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+                    "rightValue": "/summary",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "01b537f0-1ba8-48e3-9ed5-1f83d7980d70",
+                    "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+                    "rightValue": "/update",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        240,
+        512
+      ],
+      "id": "0e89fa1b-4872-4112-976e-452bad3ec2c2",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "meals",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "= {{ String($node[\"Code in JavaScript3\"].json.chat_id) }}"
+            },
+            {
+              "keyName": "created_at",
+              "condition": "gt",
+              "keyValue": "={{ new Date().toLocaleDateString('en-CA') + \" 00:00:00\" }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        608,
+        624
+      ],
+      "id": "eb76461b-9dc6-4d24-8c80-6829c3d23f74",
+      "name": "Get many rows2",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const meals = items.map(i => i.json);\n\nlet totalCalories = 0;\nlet summaryText = \"\";\n\nfor (const meal of meals) {\n  totalCalories += Number(meal.calories || 0);\n  summaryText += `- ${meal.meal_text} (${meal.calories} kcal)\\n`;\n}\n\nconst chatId = $node[\"Code in JavaScript3\"].json.chat_id;\n\nreturn [{\n  json: {\n    chat_id: chatId,\n    text:\n      \"📊 Today's Summary\\n\\n\" +\n      \"Calories: \" + totalCalories + \" kcal\\n\" +\n      \"Meals: \" + meals.length + \"\\n\\n\" +\n      summaryText\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        640
+      ],
+      "id": "73968439-fa9c-4616-a8bd-001251f7c7ad",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json[\"chat_id\"] }}",
+        "text": "={{ $json[\"text\"] }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1248,
+        640
+      ],
+      "id": "f69dfa82-33e3-4cd9-89fc-b0ef57893783",
+      "name": "Send a text message4",
+      "webhookId": "e8b1e46d-bf22-4996-9151-ad486b76d393",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "meals",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "={{ String($node[\"Code in JavaScript3\"].json.chat_id) }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        864,
+        848
+      ],
+      "id": "ad22c853-8361-4e81-b712-9252ad3486e0",
+      "name": "Get many rows3",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const fullText = $node[\"Code in JavaScript3\"].json.full_text;\n\n// \"/update 2 eggs\"\nconst parts = fullText.split(\" \");\n\nconst index = parseInt(parts[1]); // 2\nconst newText = parts.slice(2).join(\" \"); // eggs\n\nreturn [{\n  json: {\n    chat_id: $node[\"Code in JavaScript3\"].json.chat_id,\n    index,\n    new_text: newText\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        848
+      ],
+      "id": "bf347c40-dc80-4d5a-bdab-5ff2245c4d94",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const meals = items.map(i => i.json);\n\n// sort by created_at DESC (latest first)\nmeals.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));\n\nreturn meals.map(m => ({ json: m }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        848
+      ],
+      "id": "457c9d5b-6192-42a4-89a0-5537f90488d7",
+      "name": "Code in JavaScript6"
+    },
+    {
+      "parameters": {
+        "jsCode": "const index = $node[\"Code in JavaScript5\"].json.index;\nconst newText = $node[\"Code in JavaScript5\"].json.new_text;\nconst chatId = $node[\"Code in JavaScript5\"].json.chat_id;\n\nconst meals = items.map(i => i.json);\n\n// sort latest first\nmeals.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));\n\nif (!index || index < 1 || index > meals.length) {\n  return [{\n    json: {\n      error: \"Invalid index\",\n      chat_id: chatId\n    }\n  }];\n}\n\nconst selectedMeal = meals[index - 1];\n\nreturn [{\n  json: {\n    meal_id: selectedMeal.id,\n    new_text: newText,\n    chat_id: chatId,\n    index\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        848
+      ],
+      "id": "14aea227-1a20-47c4-bf22-935bbe848823",
+      "name": "Code in JavaScript7"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "75cb7507-0758-45ac-8e1d-ef4b2b93a466",
+              "leftValue": "={{ !!$json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1504,
+        848
+      ],
+      "id": "546dceed-bb5d-413f-9b7b-a3335b751a06",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Telegram Trigger\"].json[\"message\"][\"chat\"][\"id\"]}}",
+        "text": "Provide Correct Data : Step1 -> /meals choose correct meal number then /update provide number ",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1840,
+        608
+      ],
+      "id": "491a620b-cd8f-45ac-a417-13b0e6834e72",
+      "name": "Send a text message5",
+      "webhookId": "bdccfc0c-340b-4bf8-9979-6fa8d8b7cbd5",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a nutrition expert.\n\nConvert the given food into calorie estimates.\n\nBreak it into items and estimate realistic portions.\n\nReturn ONLY JSON in this format:\n{\n  \"items\": [\n    { \"name\": \"\", \"quantity\": \"\", \"calories\": number }\n  ],\n  \"total_calories\": number\n}"
+            },
+            {
+              "content": "={{ $json.new_text }}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        1712,
+        944
+      ],
+      "id": "b54d41bb-c7f1-4aa0-b3f6-8a6fcb75fb45",
+      "name": "Message a model1",
+      "credentials": {
+        "openAiApi": {
+          "id": "YVzhiUOvuS6gDVwF",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let parsed;\n\ntry {\nparsed = JSON.parse($json.output[0].content[0].text);\n} catch (e) {\n  return [{\n    json: {\n      error: \"AI failed\",\n      chat_id: $json.chat_id\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    meal_id: $node[\"Code in JavaScript7\"].json.meal_id,\n    chat_id: $node[\"Code in JavaScript7\"].json.chat_id,\n    meal_text: $node[\"Code in JavaScript7\"].json.new_text,\n    calories: parsed.total_calories,\n    breakdown: JSON.stringify(parsed.items),\n    index: $node[\"Code in JavaScript7\"].json.index\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        944
+      ],
+      "id": "b3ca241e-6fab-4697-947f-3862e48aac66",
+      "name": "Code in JavaScript8"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "meals",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.meal_id}}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "meal_text",
+              "fieldValue": "={{ $json.meal_text }}"
+            },
+            {
+              "fieldId": "calories",
+              "fieldValue": "={{ $json.calories }}"
+            },
+            {
+              "fieldId": "breakdown",
+              "fieldValue": "={{ $json.breakdown }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        944
+      ],
+      "id": "d8798e13-4018-4913-bdb8-b126bf41b7b4",
+      "name": "Update a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f88e5542-f45a-4277-bf32-adbf4195d3fc",
+              "leftValue": "={{ !!$items(\"Get many rows1\")[0]?.json?.telegram_id }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        848,
+        -384
+      ],
+      "id": "e379e3fa-351f-468e-8837-2dafc6189e89",
+      "name": "If3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "78725cdb-3724-4dc6-8135-6849d49acf63",
+              "leftValue": "={{ $items().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1088,
+        -416
+      ],
+      "id": "31d0af56-5035-41c0-ac98-0528153e88db",
+      "name": "If4"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1892a864-9bc2-4c36-aa61-0a0bfd68d7d1",
+              "leftValue": "={{ $('Create a row1').isExecuted ? $('Create a row1').item.json.onboarding_step : $('If7').item.json.onboarding_step }}",
+              "rightValue": "step_1",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2688,
+        -640
+      ],
+      "id": "abf9c0db-21ab-44b8-b903-9b05a8d229a0",
+      "name": "If5"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "bc298783-1b0b-4178-b248-564aa0014caa",
+              "leftValue": "={{ $json.onboarding_step }}",
+              "rightValue": "step_2",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2736,
+        -336
+      ],
+      "id": "138fdb91-01d4-424e-a15a-2211714a3e71",
+      "name": "If6"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $node[\"Code in JavaScript3\"].json.chat_id }}",
+        "text": "Step 3/3: How active are you?",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3024,
+        -352
+      ],
+      "id": "b92caad1-8da0-4579-834c-b94a5c52e67b",
+      "name": "Send a text message6",
+      "webhookId": "5ccb0ad8-fb75-4182-a23c-06361b7ad892",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $node[\"Code in JavaScript3\"].json.chat_id }}",
+        "text": "Step 2/3: What’s your weight?",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2880,
+        -656
+      ],
+      "id": "83b51d56-8794-4a02-989e-cb478af9ec45",
+      "name": "Send a text message7",
+      "webhookId": "f24f3aae-9e16-41fb-bd90-18a502190ce0",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "users",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_id",
+              "condition": "eq",
+              "keyValue": "={{ $node[\"Code in JavaScript3\"].json.chat_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "onboarding_step",
+              "fieldValue": "step_2"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3072,
+        -656
+      ],
+      "id": "c95a0e45-2efd-4b9a-9afc-6abba28e0a7f",
+      "name": "Update a row1",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "users",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "telegram_id",
+              "condition": "eq",
+              "keyValue": "={{ $node[\"Code in JavaScript3\"].json.chat_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "onboarding_step",
+              "fieldValue": "completed"
+            },
+            {
+              "fieldId": "onboarding_completed",
+              "fieldValue": "true"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        3280,
+        -352
+      ],
+      "id": "78f2e4e5-ead4-4862-b5a0-3a85a716fe8b",
+      "name": "Update a row2",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "92ada091-c365-4ccd-8224-a0175064cf24",
+              "leftValue": "={{ $node[\"Get many rows1\"].json.onboarding_step }}",
+              "rightValue": "null",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1104,
+        -592
+      ],
+      "id": "6456f29b-03c3-4325-a7f1-d26fb2a47678",
+      "name": "If7"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $node[\"Code in JavaScript3\"].json.chat_id }}",
+        "text": " 📝 /log   Log your food   Example: /log 2 eggs    📋 /meals   View your logged meals    📊 /summary   See your nutrition summary    ✏️ /update   Edit a meal   1. Use /meals   2. Pick a number   3. Send: /update 1 2 eggs",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2896,
+        -48
+      ],
+      "id": "64b1fb3b-b190-4d36-a8db-3ee8e0c7ec6b",
+      "name": "Send a text message8",
+      "webhookId": "12858aef-a0aa-4ee8-8558-6b47ad10d87d",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3bd8612a-7389-4b95-b3e2-9ac8c069286e",
+              "leftValue": "",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1808,
+        -16
+      ],
+      "id": "054cea75-b5ae-421c-acc7-f57d6d879c86",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "3585cb79-a4f2-4bb9-9c85-f5ec704da242",
+              "leftValue": "={{ !$json.telegram_id || $node[\"Code in JavaScript3\"].json.command === \"/start\" }}",
+              "rightValue": "/log",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        992,
+        0
+      ],
+      "id": "8b4acc5b-d3a6-4d4f-a10e-07116fc25d4f",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6f6a6b38-4aff-4f10-8707-20732a9debb8",
+              "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+              "rightValue": "/log",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "1329cffe-434c-44bf-a8dc-69409edbcf7c",
+              "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+              "rightValue": "/meals",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "c0eda639-b850-41bd-be5a-9082aa50d226",
+              "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+              "rightValue": "/summary",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "2361bd85-6f35-4de5-bdd0-b9ef306e2c8c",
+              "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+              "rightValue": "/update",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        688,
+        0
+      ],
+      "id": "927ba0c3-292d-4dae-86b5-c8329242eb97",
+      "name": "If8"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Telegram Trigger\"].json[\"message\"][\"chat\"][\"id\"]}}",
+        "text": "Meals updated  ✅",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2480,
+        944
+      ],
+      "id": "1f139915-6f02-48de-88bf-c0127a6a4c09",
+      "name": "Send a text message1",
+      "webhookId": "230119be-2edc-4a66-b55e-79fc049641b8",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Create a row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message2": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Send a text message3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Get many rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows1": {
+      "main": [
+        [
+          {
+            "node": "If8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row1": {
+      "main": [
+        [
+          {
+            "node": "Create a row2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row2": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get many rows2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Send a text message4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "Get many rows3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows3": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript6": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript7": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [
+          {
+            "node": "Send a text message5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Message a model1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript8": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If3": {
+      "main": [
+        [
+          {
+            "node": "If4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If4": {
+      "main": [
+        [
+          {
+            "node": "If7",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create a row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If5": {
+      "main": [
+        [
+          {
+            "node": "Send a text message7",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If6": {
+      "main": [
+        [
+          {
+            "node": "Send a text message6",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send a text message8",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message7": {
+      "main": [
+        [
+          {
+            "node": "Update a row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a text message6": {
+      "main": [
+        [
+          {
+            "node": "Update a row2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If7": {
+      "main": [
+        [
+          {
+            "node": "Send a text message2",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request3": {
+      "main": [
+        [
+          {
+            "node": "If5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a text message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "If8": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "If3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "99aaaa76-7fa7-4bd7-9fcd-683829db285d",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ced2717435df82d9d354924de825fc8b1e4b374c9ebbfb0a358248245a08ad1c"
+  },
+  "id": "pRxCdmuX62avwM12",
+  "tags": []
+}
