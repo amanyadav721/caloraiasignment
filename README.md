@@ -119,6 +119,26 @@ If either value is missing, the app stays in preview mode and shows a sample ban
 - Supabase is the backend layer. The app reads and writes meal data through `src/lib/supabase.ts` and `src/lib/meals.ts`, while `supabase/meals.sql` sets up the `meals` table, row level security, and Realtime publishing.
 - External workflow automation is assumed to live outside this repo. The intended shape is that n8n or a chatbot flow writes meal and event data into the same Supabase project, and the mobile app reflects those changes in near real time.
 
+## Evaluation plan
+
+### Primary metric
+
+- Onboarding completion rate (`Step 1 -> Step 3`)
+
+### Guardrail metrics
+
+- Drop-off rate after `/start`
+- Error rate in chatbot responses
+
+### Secondary metrics
+
+- Number of meals logged in first session
+- Day 1 return rate
+
+### Decision rule
+
+- If the test group improves onboarding completion rate by `>=15%` compared to control, the onboarding flow will be rolled out to all users.
+
 ## Tools and services used and why
 
 - Expo and React Native are used to ship one codebase across iOS, Android, and web with a fast local development loop. That kept the assignment focused on product behavior instead of native platform setup.
