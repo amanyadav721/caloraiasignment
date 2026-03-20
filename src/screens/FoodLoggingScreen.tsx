@@ -18,6 +18,7 @@ import {
 } from "react-native";
 
 import { buildAnalyticsSnapshot } from "../lib/analytics";
+import { parseUtcTimestamp } from "../lib/datetime";
 import {
   createMeal,
   deleteMeal,
@@ -130,34 +131,7 @@ function getResolvedTimeZone() {
 }
 
 function parseMealDateTime(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  const normalizedValue = value.trim().replace(" ", "T");
-  const match = normalizedValue.match(
-    /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?)?$/,
-  );
-
-  if (match) {
-    const [, year, month, day, hour = "0", minute = "0", second = "0", fraction = "0"] =
-      match;
-
-    const milliseconds = Number(fraction.slice(0, 3).padEnd(3, "0"));
-
-    return new Date(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour),
-      Number(minute),
-      Number(second),
-      milliseconds,
-    );
-  }
-
-  const fallbackDate = new Date(normalizedValue);
-  return Number.isNaN(fallbackDate.getTime()) ? null : fallbackDate;
+  return parseUtcTimestamp(value);
 }
 
 function getDayKey(date: Date) {

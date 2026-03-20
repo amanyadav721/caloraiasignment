@@ -5,6 +5,7 @@ import type {
   MealRow,
   MealUpdate,
 } from "../types/database";
+import { parseUtcTimestamp } from "./datetime";
 import { assertSupabaseConfigured, isSupabaseConfigured, supabase } from "./supabase";
 
 const MEAL_COLUMNS = "id, user_id, meal_text, created_at, calories, breakdown";
@@ -201,7 +202,7 @@ function getTimeValue(value: string | null) {
     return 0;
   }
 
-  const parsedValue = new Date(value).getTime();
+  const parsedValue = parseUtcTimestamp(value)?.getTime() ?? Number.NaN;
 
   return Number.isNaN(parsedValue) ? 0 : parsedValue;
 }

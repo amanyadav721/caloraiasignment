@@ -1,4 +1,5 @@
 import type { MealRow } from "../types/database";
+import { parseUtcTimestamp } from "./datetime";
 
 export type ExperimentGroup = "Control" | "Test" | "Unassigned";
 
@@ -133,13 +134,7 @@ function hasStructuredBreakdown(value: MealRow["breakdown"]) {
 }
 
 function parseMealDateTime(value: string | null) {
-  if (!value) {
-    return null;
-  }
-
-  const normalizedValue = value.trim().replace(" ", "T");
-  const parsedDate = new Date(normalizedValue);
-  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+  return parseUtcTimestamp(value);
 }
 
 function getLocalDayKey(date: Date) {
