@@ -17,7 +17,10 @@ import {
   View,
 } from "react-native";
 
+import { buildAnalyticsSnapshot } from "../lib/analytics";
 import {
+  createMeal,
+  deleteMeal,
   fetchMeals,
   getMealCalories,
   getMealLabel,
@@ -26,6 +29,10 @@ import {
   updateMeal,
   upsertMealInState,
 } from "../lib/meals";
+import {
+  syncDailyMealNotifications,
+  type NotificationSyncResult,
+} from "../lib/notifications";
 import { isSupabaseConfigured, supabaseConfigError } from "../lib/supabase";
 import type { MealBreakdownItem, MealRow } from "../types/database";
 
@@ -62,6 +69,25 @@ type EditFormState = {
   calories: string;
   userId: string;
   breakdownText: string;
+};
+
+type ViewMode = "timeline" | "analytics";
+type EditorMode = "create" | "edit";
+
+const EMPTY_EDIT_FORM: EditFormState = {
+  mealText: "",
+  calories: "",
+  userId: "",
+  breakdownText: "",
+};
+
+const DEFAULT_NOTIFICATION_STATE: NotificationSyncResult = {
+  enabled: false,
+  supported: Platform.OS !== "web",
+  message:
+    Platform.OS === "web"
+      ? "Notifications are only available on iOS and Android."
+      : "Enable notifications to send the daily reminder and summary.",
 };
 
 function getResolvedTimeZone() {
@@ -268,20 +294,38 @@ function buildTimelineSections(meals: MealRow[]) {
   return sections;
 }
 
+function buildInitialForm(meal?: MealRow | null, recentMeals: MealRow[] = []) {
+  if (!meal) {
+    return {
+      ...EMPTY_EDIT_FORM,
+      userId: recentMeals.find((entry) => entry.user_id?.trim())?.user_id ?? "",
+    };
+  }
+
+  return {
+    mealText: meal.meal_text ?? "",
+    calories: meal.calories?.toString() ?? "",
+    userId: meal.user_id ?? "",
+    breakdownText: formatBreakdownForEditor(meal),
+  };
+}
+
 export default function FoodLoggingScreen() {
   const [meals, setMeals] = useState<MealRow[]>([]);
   const [isLoading, setIsLoading] = useState(isSupabaseConfigured);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [editingMeal, setEditingMeal] = useState<MealRow | null>(null);
-  const [editForm, setEditForm] = useState<EditFormState>({
-    mealText: "",
-    calories: "",
-    userId: "",
-    breakdownText: "",
-  });
+  const [editForm, setEditForm] = useState<EditFormState>(EMPTY_EDIT_FORM);
+  const [viewMode, setViewMode] = useState<ViewMode>("timeline");
+  const [editorMode, setEditorMode] = useState<EditorMode>("create");
+  const [isEditorVisible, setIsEditorVisible] = useState(false);
+  const [notificationState, setNotificationState] =
+    useState<NotificationSyncResult>(DEFAULT_NOTIFICATION_STATE);
+  const [isConfiguringNotifications, setIsConfiguringNotifications] = useState(false);
   const isFetchingRef = useRef(false);
 
   async function loadMeals(mode: "initial" | "refresh" | "sync" = "initial") {
@@ -343,34 +387,81 @@ export default function FoodLoggingScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setNotificationState({
+        enabled: false,
+        supported: Platform.OS !== "web",
+        message: "Connect Supabase to enable nightly reminder and summary notifications.",
+      });
+      return;
+    }
+
+    let isCancelled = false;
+
+    void syncDailyMealNotifications(meals)
+      .then((nextState) => {
+        if (!isCancelled) {
+          setNotificationState(nextState);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setNotificationState({
+            enabled: false,
+            supported: Platform.OS !== "web",
+            message: "Could not refresh the notification schedule yet.",
+          });
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [meals]);
+
   const isPreviewMode = !isSupabaseConfigured;
   const displayedMeals = isPreviewMode ? SAMPLE_MEALS : meals;
   const totalCalories = displayedMeals.reduce((sum, meal) => sum + getMealCalories(meal), 0);
   const totalFoods = displayedMeals.reduce((sum, meal) => sum + countLoggedFoods(meal), 0);
   const timelineSections = buildTimelineSections(displayedMeals);
+  const analytics = buildAnalyticsSnapshot(displayedMeals);
   const timeZoneLabel = getResolvedTimeZone();
   const syncStatusLabel = isPreviewMode
-    ? "🧪 Preview"
+    ? "Preview"
     : errorMessage
-      ? "🟠 Needs attention"
-      : "🟢 Live";
+      ? "Needs attention"
+      : "Live";
+  const isBusy = isSaving || isDeleting;
+  const maxActivityCount = Math.max(1, ...analytics.dailyActivity.map((day) => day.count));
+  const maxGroupCount = Math.max(1, ...analytics.groupDistribution.map((group) => group.count));
+
+  function openCreateComposer() {
+    setEditorMode("create");
+    setEditingMeal(null);
+    setEditForm(buildInitialForm(null, meals));
+    setIsEditorVisible(true);
+  }
 
   function openEditor(meal: MealRow) {
+    setEditorMode("edit");
     setEditingMeal(meal);
-    setEditForm({
-      mealText: meal.meal_text ?? "",
-      calories: meal.calories?.toString() ?? "",
-      userId: meal.user_id ?? "",
-      breakdownText: formatBreakdownForEditor(meal),
-    });
+    setEditForm(buildInitialForm(meal));
+    setIsEditorVisible(true);
   }
 
   function closeEditor() {
-    if (isSaving) {
+    if (isBusy) {
       return;
     }
 
+    resetEditor();
+  }
+
+  function resetEditor() {
+    setIsEditorVisible(false);
     setEditingMeal(null);
+    setEditForm(EMPTY_EDIT_FORM);
   }
 
   function updateEditField<Key extends keyof EditFormState>(
@@ -383,11 +474,7 @@ export default function FoodLoggingScreen() {
     }));
   }
 
-  async function handleSaveEdit() {
-    if (!editingMeal) {
-      return;
-    }
-
+  async function handleSaveMeal() {
     const mealText = editForm.mealText.trim();
     const userId = editForm.userId.trim();
     const caloriesInput = editForm.calories.trim();
@@ -419,27 +506,91 @@ export default function FoodLoggingScreen() {
     setIsSaving(true);
 
     try {
-      const savedMeal = await updateMeal(editingMeal.id, {
-        mealText: mealText || null,
-        calories: parsedCalories,
-        userId: userId || null,
-        breakdown: parsedBreakdown,
-      });
+      const savedMeal =
+        editorMode === "create"
+          ? await createMeal({
+              mealText: mealText || null,
+              calories: parsedCalories,
+              userId: userId || null,
+              breakdown: parsedBreakdown,
+            })
+          : await updateMeal(editingMeal?.id ?? "", {
+              mealText: mealText || null,
+              calories: parsedCalories,
+              userId: userId || null,
+              breakdown: parsedBreakdown,
+            });
 
       setMeals((currentMeals) => upsertMealInState(currentMeals, savedMeal));
       setLastSyncedAt(new Date().toISOString());
       setErrorMessage(null);
-      setEditingMeal(null);
+      resetEditor();
     } catch (error) {
-      Alert.alert("Could not update meal", getErrorMessage(error));
+      Alert.alert(
+        editorMode === "create" ? "Could not create meal" : "Could not update meal",
+        getErrorMessage(error),
+      );
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function confirmDeleteMeal(meal: MealRow) {
+    setIsDeleting(true);
+
+    try {
+      await deleteMeal(meal.id);
+      setMeals((currentMeals) => currentMeals.filter((entry) => entry.id !== meal.id));
+      setLastSyncedAt(new Date().toISOString());
+      setErrorMessage(null);
+      resetEditor();
+    } catch (error) {
+      Alert.alert("Could not delete meal", getErrorMessage(error));
+    } finally {
+      setIsDeleting(false);
+    }
+  }
+
+  function promptDeleteMeal(meal: MealRow) {
+    Alert.alert(
+      "Delete this meal?",
+      "This removes the meal from the shared backend so the chatbot and app stay aligned.",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            void confirmDeleteMeal(meal);
+          },
+        },
+      ],
+    );
+  }
+
+  async function handleEnableNotifications() {
+    setIsConfiguringNotifications(true);
+
+    try {
+      const nextState = await syncDailyMealNotifications(meals, {
+        requestPermission: true,
+      });
+
+      setNotificationState(nextState);
+    } catch (error) {
+      Alert.alert("Could not configure notifications", getErrorMessage(error));
+    } finally {
+      setIsConfiguringNotifications(false);
     }
   }
 
   return (
     <SafeAreaView style={styles.screen}>
       <StatusBar style="light" />
+
       <ScrollView
         contentContainerStyle={styles.content}
         refreshControl={
@@ -457,55 +608,109 @@ export default function FoodLoggingScreen() {
         <View style={styles.headerCard}>
           <View style={styles.headerTopRow}>
             <View style={styles.headerCopy}>
-              <Text style={styles.eyebrow}>🍽️ Food log</Text>
-              <Text style={styles.title}>Minimal daily timeline</Text>
+              <Text style={styles.eyebrow}>Food log</Text>
+              <Text style={styles.title}>Meal timeline and sync dashboard</Text>
               <Text style={styles.subtitle}>
-                Local time in {timeZoneLabel}. New chatbot meals should appear here automatically.
+                Local time in {timeZoneLabel}. The app now supports add, edit, delete, realtime
+                sync, reminders, and a compact analytics view.
               </Text>
             </View>
-            {isSupabaseConfigured ? (
-              <Pressable
-                onPress={() => {
-                  void loadMeals("refresh");
-                }}
-                style={({ pressed }) => [
-                  styles.refreshButton,
-                  pressed && styles.buttonPressed,
-                ]}
-              >
-                <Text style={styles.refreshButtonText}>
-                  {isRefreshing ? "🔄" : "↻"}
-                </Text>
-              </Pressable>
-            ) : null}
+
+            <View style={styles.headerActions}>
+              {isSupabaseConfigured ? (
+                <Pressable
+                  onPress={() => {
+                    void loadMeals("refresh");
+                  }}
+                  style={({ pressed }) => [
+                    styles.refreshButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Text style={styles.refreshButtonText}>{isRefreshing ? "..." : "↻"}</Text>
+                </Pressable>
+              ) : null}
+
+              {!isPreviewMode ? (
+                <Pressable
+                  onPress={openCreateComposer}
+                  style={({ pressed }) => [
+                    styles.headerPrimaryButton,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Text style={styles.headerPrimaryButtonText}>+ Add meal</Text>
+                </Pressable>
+              ) : null}
+            </View>
           </View>
 
           <View style={styles.metaRow}>
             <View style={styles.statusPill}>
               <Text style={styles.statusPillText}>{syncStatusLabel}</Text>
             </View>
-            <Text style={styles.metaText}>⏱️ Last sync {formatSyncTimestamp(lastSyncedAt)}</Text>
+            <Text style={styles.metaText}>Last sync {formatSyncTimestamp(lastSyncedAt)}</Text>
           </View>
 
           <View style={styles.statRow}>
             <View style={styles.statChip}>
-              <Text style={styles.statLabel}>🔥 Calories</Text>
+              <Text style={styles.statLabel}>Calories</Text>
               <Text style={styles.statValue}>{totalCalories}</Text>
             </View>
+
             <View style={styles.statChip}>
-              <Text style={styles.statLabel}>🥗 Foods</Text>
+              <Text style={styles.statLabel}>Foods</Text>
               <Text style={styles.statValue}>{totalFoods}</Text>
             </View>
+
             <View style={styles.statChip}>
-              <Text style={styles.statLabel}>🧾 Entries</Text>
+              <Text style={styles.statLabel}>Entries</Text>
               <Text style={styles.statValue}>{displayedMeals.length}</Text>
             </View>
+          </View>
+
+          <View style={styles.segmentedControl}>
+            <Pressable
+              onPress={() => setViewMode("timeline")}
+              style={({ pressed }) => [
+                styles.segmentButton,
+                viewMode === "timeline" && styles.segmentButtonActive,
+                pressed && styles.buttonPressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.segmentButtonText,
+                  viewMode === "timeline" && styles.segmentButtonTextActive,
+                ]}
+              >
+                Timeline
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => setViewMode("analytics")}
+              style={({ pressed }) => [
+                styles.segmentButton,
+                viewMode === "analytics" && styles.segmentButtonActive,
+                pressed && styles.buttonPressed,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.segmentButtonText,
+                  viewMode === "analytics" && styles.segmentButtonTextActive,
+                ]}
+              >
+                Analytics
+              </Text>
+            </Pressable>
           </View>
         </View>
 
         {isPreviewMode ? (
           <View style={styles.noticeCard}>
-            <Text style={styles.noticeTitle}>🧪 Preview mode</Text>
+            <Text style={styles.noticeTitle}>Preview mode</Text>
             <Text style={styles.noticeText}>
               Showing the sample banana meal until Supabase is connected. {supabaseConfigError}
             </Text>
@@ -514,124 +719,283 @@ export default function FoodLoggingScreen() {
 
         {errorMessage ? (
           <View style={styles.errorCard}>
-            <Text style={styles.errorTitle}>⚠️ Sync issue</Text>
+            <Text style={styles.errorTitle}>Sync issue</Text>
             <Text style={styles.errorText}>{errorMessage}</Text>
           </View>
         ) : null}
 
-        <View style={styles.timelineIntro}>
-          <Text style={styles.timelineTitle}>🕒 Daily timeline</Text>
-          <Text style={styles.timelineSubtitle}>
-            Meals are grouped by day and shown in your current timezone for faster scanning.
-          </Text>
+        <View style={styles.notificationCard}>
+          <View style={styles.notificationCopy}>
+            <Text style={styles.notificationTitle}>
+              {notificationState.enabled ? "Daily notifications active" : "Daily notifications"}
+            </Text>
+            <Text style={styles.notificationText}>{notificationState.message}</Text>
+          </View>
+
+          {!isPreviewMode && notificationState.supported ? (
+            <Pressable
+              onPress={() => {
+                void handleEnableNotifications();
+              }}
+              style={({ pressed }) => [
+                styles.notificationButton,
+                (pressed || isConfiguringNotifications) && styles.buttonPressed,
+              ]}
+              disabled={isConfiguringNotifications}
+            >
+              <Text style={styles.notificationButtonText}>
+                {isConfiguringNotifications
+                  ? "Setting..."
+                  : notificationState.enabled
+                    ? "Refresh schedule"
+                    : "Enable reminders"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
 
-        {isLoading ? (
-          <View style={styles.placeholderCard}>
-            <ActivityIndicator size="large" color="#f59e0b" />
-            <Text style={styles.placeholderText}>Loading your food timeline...</Text>
-          </View>
-        ) : timelineSections.length === 0 ? (
-          <View style={styles.placeholderCard}>
-            <Text style={styles.placeholderTitle}>🍽️ Nothing logged yet</Text>
-            <Text style={styles.placeholderText}>
-              Add meals to `public.meals` and they will appear here in a clean timeline.
-            </Text>
-          </View>
-        ) : (
-          timelineSections.map((section) => (
-            <View key={section.key} style={styles.daySection}>
-              <View style={styles.dayHeader}>
-                <View style={styles.dayCopy}>
-                  <Text style={styles.dayLabel}>{section.label}</Text>
-                  <Text style={styles.dayCaption}>{section.caption}</Text>
-                </View>
-                <View style={styles.daySummary}>
-                  <Text style={styles.daySummaryText}>🔥 {section.calories}</Text>
-                  <Text style={styles.daySummaryText}>🥗 {section.foods}</Text>
-                </View>
-              </View>
+        {viewMode === "timeline" ? (
+          <>
+            <View style={styles.sectionIntro}>
+              <Text style={styles.sectionTitle}>Daily timeline</Text>
+              <Text style={styles.sectionSubtitle}>
+                Meals are grouped by day and shown in your current timezone for quick review.
+              </Text>
+            </View>
 
-              <View style={styles.timelineList}>
-                {section.meals.map((meal, index) => {
-                  const breakdownItems = parseMealBreakdown(meal.breakdown);
-                  const mealCalories = getMealCalories(meal);
+            {isLoading ? (
+              <View style={styles.placeholderCard}>
+                <ActivityIndicator size="large" color="#f59e0b" />
+                <Text style={styles.placeholderText}>Loading your food timeline...</Text>
+              </View>
+            ) : timelineSections.length === 0 ? (
+              <View style={styles.placeholderCard}>
+                <Text style={styles.placeholderTitle}>Nothing logged yet</Text>
+                <Text style={styles.placeholderText}>
+                  Add a meal from the app or write to `public.meals` through the chatbot.
+                </Text>
+
+                {!isPreviewMode ? (
+                  <Pressable
+                    onPress={openCreateComposer}
+                    style={({ pressed }) => [
+                      styles.emptyStateButton,
+                      pressed && styles.buttonPressed,
+                    ]}
+                  >
+                    <Text style={styles.emptyStateButtonText}>Create first meal</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : (
+              timelineSections.map((section) => (
+                <View key={section.key} style={styles.daySection}>
+                  <View style={styles.dayHeader}>
+                    <View style={styles.dayCopy}>
+                      <Text style={styles.dayLabel}>{section.label}</Text>
+                      <Text style={styles.dayCaption}>{section.caption}</Text>
+                    </View>
+
+                    <View style={styles.daySummary}>
+                      <Text style={styles.daySummaryText}>{section.calories} cal</Text>
+                      <Text style={styles.daySummaryText}>{section.foods} foods</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.timelineList}>
+                    {section.meals.map((meal, index) => {
+                      const breakdownItems = parseMealBreakdown(meal.breakdown);
+                      const mealCalories = getMealCalories(meal);
+
+                      return (
+                        <View key={meal.id} style={styles.timelineRow}>
+                          <View style={styles.timeColumn}>
+                            <Text style={styles.timeText}>{formatTimelineTime(meal.created_at)}</Text>
+                            <Text style={styles.timeSubtext}>local</Text>
+                          </View>
+
+                          <View style={styles.railColumn}>
+                            <View style={styles.railDot} />
+                            {index !== section.meals.length - 1 ? (
+                              <View style={styles.railLine} />
+                            ) : (
+                              <View style={styles.railSpacer} />
+                            )}
+                          </View>
+
+                          <View style={styles.entryCard}>
+                            <View style={styles.entryHeader}>
+                              <Text style={styles.entryTitle}>{getMealLabel(meal)}</Text>
+
+                              <View style={styles.entryCaloriePill}>
+                                <Text style={styles.entryCalorieText}>{mealCalories} cal</Text>
+                              </View>
+                            </View>
+
+                            {meal.user_id ? (
+                              <Text style={styles.entryMeta}>User {meal.user_id}</Text>
+                            ) : null}
+
+                            <View style={styles.entryActionRow}>
+                              <Pressable
+                                onPress={() => openEditor(meal)}
+                                style={({ pressed }) => [
+                                  styles.entryActionButton,
+                                  pressed && styles.buttonPressed,
+                                ]}
+                              >
+                                <Text style={styles.entryActionButtonText}>Edit</Text>
+                              </Pressable>
+
+                              {!isPreviewMode ? (
+                                <Pressable
+                                  onPress={() => promptDeleteMeal(meal)}
+                                  style={({ pressed }) => [
+                                    styles.entryActionButton,
+                                    styles.entryDeleteButton,
+                                    pressed && styles.buttonPressed,
+                                  ]}
+                                >
+                                  <Text style={styles.entryDeleteButtonText}>Delete</Text>
+                                </Pressable>
+                              ) : null}
+                            </View>
+
+                            {breakdownItems.length > 0 ? (
+                              <View style={styles.foodChipWrap}>
+                                {breakdownItems.map((item, chipIndex) => (
+                                  <View
+                                    key={`${meal.id}-${item.name}-${chipIndex}`}
+                                    style={styles.foodChip}
+                                  >
+                                    <Text style={styles.foodChipTitle}>{item.name}</Text>
+                                    <Text style={styles.foodChipMeta}>
+                                      {item.quantity ?? "portion"} • {item.calories ?? 0} cal
+                                    </Text>
+                                  </View>
+                                ))}
+                              </View>
+                            ) : (
+                              <Text style={styles.entryFallback}>
+                                {meal.meal_text ?? "No detailed breakdown provided."}
+                              </Text>
+                            )}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                </View>
+              ))
+            )}
+          </>
+        ) : (
+          <>
+            <View style={styles.sectionIntro}>
+              <Text style={styles.sectionTitle}>Analytics dashboard</Text>
+              <Text style={styles.sectionSubtitle}>
+                Activity trends, estimated experiment splits, and a lightweight onboarding funnel.
+              </Text>
+            </View>
+
+            <View style={styles.analyticsCard}>
+              <Text style={styles.analyticsCardTitle}>7-day meal activity</Text>
+              <Text style={styles.analyticsCardSubtitle}>
+                Daily meal logging volume over the past week.
+              </Text>
+
+              <View style={styles.chartRow}>
+                {analytics.dailyActivity.map((day) => {
+                  const barHeight =
+                    day.count === 0
+                      ? 6
+                      : Math.max(18, Math.round((day.count / maxActivityCount) * 128));
 
                   return (
-                    <View key={meal.id} style={styles.timelineRow}>
-                      <View style={styles.timeColumn}>
-                        <Text style={styles.timeText}>
-                          {formatTimelineTime(meal.created_at)}
-                        </Text>
-                        <Text style={styles.timeSubtext}>local</Text>
+                    <View key={day.key} style={styles.chartColumn}>
+                      <Text style={styles.chartValue}>{day.count}</Text>
+                      <View style={styles.chartTrack}>
+                        <View style={[styles.chartFill, { height: barHeight }]} />
                       </View>
+                      <Text style={styles.chartLabel}>{day.label}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
 
-                      <View style={styles.railColumn}>
-                        <View style={styles.railDot} />
-                        {index !== section.meals.length - 1 ? (
-                          <View style={styles.railLine} />
-                        ) : (
-                          <View style={styles.railSpacer} />
-                        )}
+            <View style={styles.analyticsCard}>
+              <Text style={styles.analyticsCardTitle}>A/B group distribution</Text>
+              <Text style={styles.analyticsCardSubtitle}>
+                Users are deterministically split from `user_id` until explicit experiment metadata
+                is available.
+              </Text>
+
+              <View style={styles.metricStack}>
+                {analytics.groupDistribution.map((group) => {
+                  const widthPercentage =
+                    group.count === 0
+                      ? 0
+                      : Math.max(12, Math.round((group.count / maxGroupCount) * 100));
+                  const fillStyle =
+                    group.label === "Test"
+                      ? styles.metricBarFillTest
+                      : group.label === "Control"
+                        ? styles.metricBarFillControl
+                        : styles.metricBarFillMuted;
+
+                  return (
+                    <View key={group.label} style={styles.metricRow}>
+                      <View style={styles.metricHeader}>
+                        <Text style={styles.metricLabel}>{group.label}</Text>
+                        <Text style={styles.metricValue}>{group.count}</Text>
                       </View>
-
-                      <View style={styles.entryCard}>
-                        <View style={styles.entryHeader}>
-                          <Text style={styles.entryTitle}>{getMealLabel(meal)}</Text>
-                          <View style={styles.entryCaloriePill}>
-                            <Text style={styles.entryCalorieText}>🔥 {mealCalories}</Text>
-                          </View>
-                        </View>
-
-                        {meal.user_id ? (
-                          <Text style={styles.entryMeta}>👤 User {meal.user_id}</Text>
-                        ) : null}
-
-                        <View style={styles.entryActionRow}>
-                          <Pressable
-                            onPress={() => openEditor(meal)}
-                            style={({ pressed }) => [
-                              styles.editButton,
-                              pressed && styles.buttonPressed,
-                            ]}
-                          >
-                            <Text style={styles.editButtonText}>✏️ Edit meal</Text>
-                          </Pressable>
-                        </View>
-
-                        {breakdownItems.length > 0 ? (
-                          <View style={styles.foodChipWrap}>
-                            {breakdownItems.map((item, chipIndex) => (
-                              <View
-                                key={`${meal.id}-${item.name}-${chipIndex}`}
-                                style={styles.foodChip}
-                              >
-                                <Text style={styles.foodChipTitle}>{item.name}</Text>
-                                <Text style={styles.foodChipMeta}>
-                                  {item.quantity ?? "portion"} • {item.calories ?? 0} cal
-                                </Text>
-                              </View>
-                            ))}
-                          </View>
-                        ) : (
-                          <Text style={styles.entryFallback}>
-                            📝 {meal.meal_text ?? "No detailed breakdown provided."}
-                          </Text>
-                        )}
+                      <View style={styles.metricBarTrack}>
+                        <View style={[styles.metricBarFill, fillStyle, { width: `${widthPercentage}%` }]} />
                       </View>
                     </View>
                   );
                 })}
               </View>
             </View>
-          ))
+
+            <View style={styles.analyticsCard}>
+              <Text style={styles.analyticsCardTitle}>Test-group onboarding funnel</Text>
+              <Text style={styles.analyticsCardSubtitle}>
+                Completion is estimated from repeat activity or a structured meal breakdown because
+                this repo does not yet store dedicated onboarding events.
+              </Text>
+
+              <View style={styles.funnelHero}>
+                <Text style={styles.funnelRate}>{analytics.completionRate}%</Text>
+                <Text style={styles.funnelCaption}>Estimated completion rate</Text>
+              </View>
+
+              <View style={styles.funnelStatRow}>
+                <View style={styles.funnelStat}>
+                  <Text style={styles.funnelStatLabel}>Unique users</Text>
+                  <Text style={styles.funnelStatValue}>{analytics.totalUniqueUsers}</Text>
+                </View>
+
+                <View style={styles.funnelStat}>
+                  <Text style={styles.funnelStatLabel}>Test users</Text>
+                  <Text style={styles.funnelStatValue}>{analytics.testUsers}</Text>
+                </View>
+
+                <View style={styles.funnelStat}>
+                  <Text style={styles.funnelStatLabel}>Completed</Text>
+                  <Text style={styles.funnelStatValue}>{analytics.completedTestUsers}</Text>
+                </View>
+              </View>
+            </View>
+          </>
         )}
       </ScrollView>
 
       <Modal
         animationType="slide"
         transparent
-        visible={editingMeal !== null}
+        visible={isEditorVisible}
         onRequestClose={closeEditor}
       >
         <View style={styles.modalBackdrop}>
@@ -642,19 +1006,26 @@ export default function FoodLoggingScreen() {
             <View style={styles.modalSheet}>
               <View style={styles.modalHeader}>
                 <View style={styles.modalHeaderCopy}>
-                  <Text style={styles.modalEyebrow}>✏️ Update meal</Text>
-                  <Text style={styles.modalTitle}>Edit meal data from the app</Text>
+                  <Text style={styles.modalEyebrow}>
+                    {editorMode === "create" ? "New meal" : "Update meal"}
+                  </Text>
+                  <Text style={styles.modalTitle}>
+                    {editorMode === "create"
+                      ? "Add a meal from the app"
+                      : "Edit meal data from the app"}
+                  </Text>
                   <Text style={styles.modalSubtitle}>
                     One food per line: `name | quantity | calories`
                   </Text>
                 </View>
+
                 <Pressable
                   onPress={closeEditor}
                   style={({ pressed }) => [
                     styles.modalCloseButton,
                     pressed && styles.buttonPressed,
                   ]}
-                  disabled={isSaving}
+                  disabled={isBusy}
                 >
                   <Text style={styles.modalCloseButtonText}>✕</Text>
                 </Pressable>
@@ -706,16 +1077,29 @@ export default function FoodLoggingScreen() {
                   <TextInput
                     value={editForm.breakdownText}
                     onChangeText={(value) => updateEditField("breakdownText", value)}
-                    placeholder={"Banana | 1 medium | 105"}
+                    placeholder="Banana | 1 medium | 105"
                     placeholderTextColor="#6b7280"
                     multiline
                     textAlignVertical="top"
                     style={styles.textarea}
                   />
-                  <Text style={styles.fieldHelp}>
-                    Example: `Banana | 1 medium | 105`
-                  </Text>
+                  <Text style={styles.fieldHelp}>Example: `Banana | 1 medium | 105`</Text>
                 </View>
+
+                {editorMode === "edit" && editingMeal ? (
+                  <Pressable
+                    onPress={() => promptDeleteMeal(editingMeal)}
+                    style={({ pressed }) => [
+                      styles.deleteAction,
+                      pressed && styles.buttonPressed,
+                    ]}
+                    disabled={isBusy}
+                  >
+                    <Text style={styles.deleteActionText}>
+                      {isDeleting ? "Deleting..." : "Delete meal"}
+                    </Text>
+                  </Pressable>
+                ) : null}
               </ScrollView>
 
               <View style={styles.modalActions}>
@@ -725,22 +1109,27 @@ export default function FoodLoggingScreen() {
                     styles.secondaryAction,
                     pressed && styles.buttonPressed,
                   ]}
-                  disabled={isSaving}
+                  disabled={isBusy}
                 >
                   <Text style={styles.secondaryActionText}>Cancel</Text>
                 </Pressable>
+
                 <Pressable
                   onPress={() => {
-                    void handleSaveEdit();
+                    void handleSaveMeal();
                   }}
                   style={({ pressed }) => [
                     styles.primaryAction,
                     (pressed || isSaving) && styles.buttonPressed,
                   ]}
-                  disabled={isSaving}
+                  disabled={isBusy}
                 >
                   <Text style={styles.primaryActionText}>
-                    {isSaving ? "Saving..." : "Save changes"}
+                    {isSaving
+                      ? "Saving..."
+                      : editorMode === "create"
+                        ? "Create meal"
+                        : "Save changes"}
                   </Text>
                 </Pressable>
               </View>
@@ -774,7 +1163,6 @@ const styles = StyleSheet.create({
   headerTopRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-start",
     gap: 12,
   },
   headerCopy: {
@@ -798,7 +1186,11 @@ const styles = StyleSheet.create({
     color: "#a1a1aa",
     fontSize: 14,
     lineHeight: 20,
-    maxWidth: 280,
+    maxWidth: 320,
+  },
+  headerActions: {
+    gap: 10,
+    alignItems: "flex-end",
   },
   refreshButton: {
     minWidth: 42,
@@ -815,8 +1207,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
   },
+  headerPrimaryButton: {
+    minHeight: 42,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#d97706",
+  },
+  headerPrimaryButtonText: {
+    color: "#111111",
+    fontSize: 13,
+    fontWeight: "800",
+  },
   buttonPressed: {
-    opacity: 0.75,
+    opacity: 0.8,
   },
   metaRow: {
     flexDirection: "row",
@@ -868,6 +1274,32 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "800",
   },
+  segmentedControl: {
+    flexDirection: "row",
+    gap: 10,
+    backgroundColor: "#0d0d10",
+    borderRadius: 20,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: "#1f1f24",
+  },
+  segmentButton: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  segmentButtonActive: {
+    backgroundColor: "#1b1b20",
+  },
+  segmentButtonText: {
+    color: "#71717a",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  segmentButtonTextActive: {
+    color: "#fafafa",
+  },
   noticeCard: {
     backgroundColor: "#10213c",
     borderRadius: 22,
@@ -904,16 +1336,49 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 20,
   },
-  timelineIntro: {
+  notificationCard: {
+    backgroundColor: "#111827",
+    borderRadius: 24,
+    padding: 16,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: "#1f2937",
+  },
+  notificationCopy: {
+    gap: 6,
+  },
+  notificationTitle: {
+    color: "#eff6ff",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  notificationText: {
+    color: "#cbd5e1",
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  notificationButton: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "#38bdf8",
+  },
+  notificationButtonText: {
+    color: "#082f49",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  sectionIntro: {
     gap: 4,
     paddingHorizontal: 2,
   },
-  timelineTitle: {
+  sectionTitle: {
     color: "#fafafa",
     fontSize: 22,
     fontWeight: "800",
   },
-  timelineSubtitle: {
+  sectionSubtitle: {
     color: "#8f8f99",
     fontSize: 13,
     lineHeight: 19,
@@ -937,6 +1402,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     textAlign: "center",
+  },
+  emptyStateButton: {
+    marginTop: 6,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: "#d97706",
+  },
+  emptyStateButtonText: {
+    color: "#111111",
+    fontSize: 13,
+    fontWeight: "800",
   },
   daySection: {
     backgroundColor: "#101012",
@@ -1061,17 +1538,27 @@ const styles = StyleSheet.create({
   },
   entryActionRow: {
     flexDirection: "row",
+    gap: 10,
   },
-  editButton: {
-    backgroundColor: "#111114",
+  entryActionButton: {
     borderRadius: 999,
-    paddingHorizontal: 10,
+    paddingHorizontal: 12,
     paddingVertical: 7,
+    backgroundColor: "#111114",
     borderWidth: 1,
     borderColor: "#2d2d35",
   },
-  editButtonText: {
+  entryActionButtonText: {
     color: "#e4e4e7",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  entryDeleteButton: {
+    borderColor: "#4c1d1d",
+    backgroundColor: "#211011",
+  },
+  entryDeleteButtonText: {
+    color: "#fca5a5",
     fontSize: 12,
     fontWeight: "700",
   },
@@ -1102,6 +1589,141 @@ const styles = StyleSheet.create({
     color: "#a1a1aa",
     fontSize: 13,
     lineHeight: 19,
+  },
+  analyticsCard: {
+    backgroundColor: "#10141f",
+    borderRadius: 24,
+    padding: 16,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: "#1f2937",
+  },
+  analyticsCardTitle: {
+    color: "#f8fafc",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  analyticsCardSubtitle: {
+    color: "#94a3b8",
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  chartRow: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  chartColumn: {
+    flex: 1,
+    alignItems: "center",
+    gap: 8,
+  },
+  chartValue: {
+    color: "#e2e8f0",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  chartTrack: {
+    width: "100%",
+    height: 132,
+    borderRadius: 999,
+    backgroundColor: "#0f172a",
+    justifyContent: "flex-end",
+    overflow: "hidden",
+  },
+  chartFill: {
+    width: "100%",
+    borderRadius: 999,
+    backgroundColor: "#38bdf8",
+  },
+  chartLabel: {
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  metricStack: {
+    gap: 12,
+  },
+  metricRow: {
+    gap: 8,
+  },
+  metricHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  metricLabel: {
+    color: "#e2e8f0",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  metricValue: {
+    color: "#f8fafc",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  metricBarTrack: {
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: "#0f172a",
+    overflow: "hidden",
+  },
+  metricBarFill: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  metricBarFillControl: {
+    backgroundColor: "#f59e0b",
+  },
+  metricBarFillTest: {
+    backgroundColor: "#38bdf8",
+  },
+  metricBarFillMuted: {
+    backgroundColor: "#64748b",
+  },
+  funnelHero: {
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 12,
+    borderRadius: 20,
+    backgroundColor: "#0f172a",
+  },
+  funnelRate: {
+    color: "#f8fafc",
+    fontSize: 40,
+    fontWeight: "800",
+  },
+  funnelCaption: {
+    color: "#94a3b8",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  funnelStatRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  funnelStat: {
+    flexGrow: 1,
+    minWidth: 92,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: "#0f172a",
+    borderWidth: 1,
+    borderColor: "#1e293b",
+  },
+  funnelStatLabel: {
+    color: "#94a3b8",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  funnelStatValue: {
+    marginTop: 6,
+    color: "#f8fafc",
+    fontSize: 22,
+    fontWeight: "800",
   },
   modalBackdrop: {
     flex: 1,
@@ -1212,6 +1834,19 @@ const styles = StyleSheet.create({
     color: "#71717a",
     fontSize: 12,
     lineHeight: 18,
+  },
+  deleteAction: {
+    borderRadius: 16,
+    paddingVertical: 14,
+    alignItems: "center",
+    backgroundColor: "#331314",
+    borderWidth: 1,
+    borderColor: "#7f1d1d",
+  },
+  deleteActionText: {
+    color: "#fecaca",
+    fontSize: 15,
+    fontWeight: "700",
   },
   modalActions: {
     flexDirection: "row",
