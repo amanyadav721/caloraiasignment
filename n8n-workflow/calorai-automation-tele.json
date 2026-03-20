@@ -573,6 +573,29 @@
                 ],
                 "combinator": "and"
               }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "6be2dd1e-5af6-4ed9-ae91-7ac6e86186bd",
+                    "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+                    "rightValue": "/delete",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
             }
           ]
         },
@@ -707,7 +730,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1088,
+        1120,
         848
       ],
       "id": "457c9d5b-6192-42a4-89a0-5537f90488d7",
@@ -1275,6 +1298,16 @@
                 "operation": "equals",
                 "name": "filter.operator.equals"
               }
+            },
+            {
+              "id": "722e2b50-f76a-4fea-af99-4dbe2f45b27b",
+              "leftValue": "={{ $node[\"Code in JavaScript3\"].json.command }}",
+              "rightValue": "/delete",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
             }
           ],
           "combinator": "or"
@@ -1305,6 +1338,168 @@
       "id": "1f139915-6f02-48de-88bf-c0127a6a4c09",
       "name": "Send a text message1",
       "webhookId": "230119be-2edc-4a66-b55e-79fc049641b8",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const fullText = $node[\"Code in JavaScript3\"].json.full_text;\n\n// \"/delete 2\"\nconst parts = fullText.split(\" \");\n\nconst index = parseInt(parts[1]);\n\nreturn [{\n  json: {\n    chat_id: $node[\"Code in JavaScript3\"].json.chat_id,\n    index\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        1072
+      ],
+      "id": "06b6fb7c-7f60-4ddd-a7a1-1d060a02b580",
+      "name": "Code in JavaScript9"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "meals",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "={{ String($node[\"Code in JavaScript3\"].json.chat_id) }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        864,
+        1072
+      ],
+      "id": "9fb80701-9af3-49b8-81e1-304f9bcbb8ce",
+      "name": "Get many rows4",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const index = $node[\"Code in JavaScript9\"].json.index;\nconst chatId = $node[\"Code in JavaScript9\"].json.chat_id;\n\nconst meals = items.map(i => i.json);\n\n// sort latest first\nmeals.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));\n\nif (!index || index < 1 || index > meals.length) {\n  return [{\n    json: {\n      error: \"Invalid index\",\n      chat_id: chatId\n    }\n  }];\n}\n\nconst selectedMeal = meals[index - 1];\n\nreturn [{\n  json: {\n    meal_id: selectedMeal.id,\n    chat_id: chatId\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        1072
+      ],
+      "id": "3f248fe3-8681-4bd1-9440-8b9b482d0fe9",
+      "name": "Code in JavaScript10"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7e1ddf18-3797-4307-9961-f3e68b1dff3d",
+              "leftValue": "={{ !!$json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1328,
+        1088
+      ],
+      "id": "a852af58-88f5-43ee-84b1-d8bcbc48b151",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Telegram Trigger\"].json[\"message\"][\"chat\"][\"id\"]}}",
+        "text": "Invalid number. Use /meals first.",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1504,
+        1008
+      ],
+      "id": "81e41bf8-8b01-42b9-9f8d-9e2fd82ea4a7",
+      "name": "Send a text message9",
+      "webhookId": "5a71183d-faf9-40b5-b598-c4a1d757e308",
+      "credentials": {
+        "telegramApi": {
+          "id": "sZHqEGNi32FxbJXM",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "tableId": "meals",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.meal_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1536,
+        1184
+      ],
+      "id": "5b39adb8-027e-4bf6-841f-d73cdfb22190",
+      "name": "Delete a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "RcHwFH6AZrgrYYP2",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$node[\"Telegram Trigger\"].json[\"message\"][\"chat\"][\"id\"]}}",
+        "text": "Meal Deleted Successfully ✅",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1744,
+        1184
+      ],
+      "id": "e4b9b541-8dd3-4bce-a922-60845b823eec",
+      "name": "Send a text message10",
+      "webhookId": "920be522-ae05-470b-b691-18801d871f36",
       "credentials": {
         "telegramApi": {
           "id": "sZHqEGNi32FxbJXM",
@@ -1506,6 +1701,13 @@
         [
           {
             "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Code in JavaScript9",
             "type": "main",
             "index": 0
           }
@@ -1781,14 +1983,76 @@
           }
         ]
       ]
+    },
+    "Code in JavaScript9": {
+      "main": [
+        [
+          {
+            "node": "Get many rows4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows4": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript10": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a text message9",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Delete a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete a row": {
+      "main": [
+        [
+          {
+            "node": "Send a text message10",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "4b713d11-48d1-4729-ae25-9b1befaf5ade",
+  "versionId": "4826e6e4-e4dd-43a8-b8a9-4f9c89361798",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "ced2717435df82d9d354924de825fc8b1e4b374c9ebbfb0a358248245a08ad1c"
